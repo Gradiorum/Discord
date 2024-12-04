@@ -15,7 +15,7 @@ class Settings(commands.Cog):
             self.settings[guild.id] = {'volume': 1.0}
         return self.settings[guild.id]
 
-    @commands.command()
+    @commands.hybrid_command(name='volume', description='Changes the playback volume (0-100).')
     async def volume(self, ctx, volume: int):
         """Changes the playback volume (0-100)."""
         if 0 <= volume <= 100:

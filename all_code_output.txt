@@ -1,0 +1,646 @@
+
+# --------------------
+# File: .\exportcode.py
+# --------------------
+
+import os
+
+def export_code():
+    code_files = []
+    exclude_dirs = ['.venv', 'venv', '__pycache__', '.git']
+
+    for root, dirs, files in os.walk('.'):
+        # Exclude specified directories
+        dirs[:] = [d for d in dirs if d not in exclude_dirs]
+        for file in files:
+            if file.endswith('.py') and file != 'export_code.py':
+                code_files.append(os.path.join(root, file))
+
+    all_code = ''
+    for file_path in code_files:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            code = f.read()
+            all_code += f"\n# {'-'*20}\n# File: {file_path}\n# {'-'*20}\n\n{code}\n"
+
+    with open('all_code_output.txt', 'w', encoding='utf-8') as f:
+        f.write(all_code)
+
+    print("All code has been exported to all_code_output.txt")
+
+if __name__ == "__main__":
+    export_code()
+
+
+# --------------------
+# File: .\GradiorumMP3\bot.py
+# --------------------
+
+# bot.py
+
+import discord
+from discord.ext import commands
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+TOKEN = os.getenv('DISCORD_TOKEN')
+PREFIX = os.getenv('COMMAND_PREFIX', '!')
+
+intents = discord.Intents.default()
+intents.message_content = True  # Enable message content intent
+intents.voice_states = True
+
+# List of cogs to load
+initial_extensions = [
+    'cogs.playback',
+    'cogs.queue',
+    'cogs.info',
+    'cogs.settings',
+]
+
+class MyBot(commands.Bot):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    async def setup_hook(self):
+        # Load extensions
+        for extension in initial_extensions:
+            await self.load_extension(extension)
+        # Sync commands globally
+        await self.tree.sync()
+        print(f'Synced application commands globally.')
+
+bot = MyBot(command_prefix=PREFIX, intents=intents, help_command=None)
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user.name}')
+    print(f'Connected to Discord (ID: {bot.user.id})')
+
+if __name__ == '__main__':
+    bot.run(TOKEN)
+
+
+
+# --------------------
+# File: .\GradiorumMP3\cogs\info.py
+# --------------------
+
+# cogs/info.py
+
+import discord
+from discord.ext import commands
+
+class Info(commands.Cog):
+    """Information related commands and settings"""
+
+    def __init__(self, bot):
+        self.bot = bot
+        # Initialize guild-specific settings
+        if not hasattr(bot, 'guild_settings'):
+            bot.guild_settings = {}
+        self.guild_settings = bot.guild_settings
+
+    def get_guild_settings(self, guild):
+        if guild.id not in self.guild_settings:
+            # Default settings for the guild
+            self.guild_settings[guild.id] = {
+                'allowed_channels': None,  # None means all channels are allowed
+                'prevent_join_if_bot_present': False,
+                'restricted_roles': []  # Roles that prevent the bot from joining
+            }
+        return self.guild_settings[guild.id]
+
+    # Command to display the help message
+    @commands.hybrid_command(name='help', description='Displays the help message.')
+    async def help(self, ctx):
+        """Displays the help message."""
+        settings = self.get_guild_settings(ctx.guild)
+        allowed_channels = settings['allowed_channels']
+        if allowed_channels and ctx.channel.id not in allowed_channels:
+            return  # Do not respond if channel is not allowed
+
+        embed = discord.Embed(title="Help", description="List of available commands:", color=0x00ff00)
+        for command in self.bot.commands:
+            if command.hidden:
+                continue  # Skip hidden commands
+            embed.add_field(name=f"{self.bot.command_prefix}{command.name}", value=command.help, inline=False)
+        await ctx.send(embed=embed)
+
+    # Command to get the bot's latency
+    @commands.hybrid_command(name='ping', description="Get the bot's current latency.")
+    async def ping(self, ctx):
+        """Get the bot's current latency."""
+        settings = self.get_guild_settings(ctx.guild)
+        allowed_channels = settings['allowed_channels']
+        if allowed_channels and ctx.channel.id not in allowed_channels:
+            return
+
+        latency = round(self.bot.latency * 1000)
+        await ctx.send(f'Pong! Latency: {latency}ms')
+
+    # Command to get information about the bot
+    @commands.hybrid_command(name='about', description='Get information about the bot.')
+    async def about(self, ctx):
+        """Get information about the bot."""
+        settings = self.get_guild_settings(ctx.guild)
+        allowed_channels = settings['allowed_channels']
+        if allowed_channels and ctx.channel.id not in allowed_channels:
+            return
+
+        embed = discord.Embed(title="About the Bot", description="This is a custom MP3 bot.", color=0x00ff00)
+        embed.add_field(name="Developer", value="Your Name")
+        await ctx.send(embed=embed)
+
+    # Command to get the bot's statistics
+    @commands.hybrid_command(name='stats', description='Get stats about the bot.')
+    async def stats(self, ctx):
+        """Get stats about the bot."""
+        settings = self.get_guild_settings(ctx.guild)
+        allowed_channels = settings['allowed_channels']
+        if allowed_channels and ctx.channel.id not in allowed_channels:
+            return
+
+        embed = discord.Embed(title="Bot Statistics", color=0x00ff00)
+        embed.add_field(name="Servers", value=f"{len(self.bot.guilds)}")
+        embed.add_field(name="Users", value=f"{len(set(self.bot.get_all_members()))}")
+        await ctx.send(embed=embed)
+
+    # Command to set allowed text channels
+    @commands.hybrid_command(name='set_allowed_channels', description='Sets the channels where the bot is allowed to respond.')
+    @commands.has_permissions(administrator=True)
+    async def set_allowed_channels(self, ctx, channels: commands.Greedy[discord.TextChannel]):
+        """Sets the channels where the bot is allowed to respond. Use without arguments to allow all channels."""
+        settings = self.get_guild_settings(ctx.guild)
+        if channels:
+            settings['allowed_channels'] = [channel.id for channel in channels]
+            channel_mentions = ', '.join(channel.mention for channel in channels)
+            await ctx.send(f"Bot will now respond only in the following channels: {channel_mentions}")
+        else:
+            settings['allowed_channels'] = None
+            await ctx.send("Bot will now respond in all channels.")
+
+    # Command to toggle checking for other bots in voice channels
+    @commands.hybrid_command(name='toggle_bot_check', description='Toggles whether the bot should check for other bots in voice channels before joining.')
+    @commands.has_permissions(administrator=True)
+    async def toggle_bot_check(self, ctx):
+        """Toggles whether the bot should check for other bots in voice channels before joining."""
+        settings = self.get_guild_settings(ctx.guild)
+        settings['prevent_join_if_bot_present'] = not settings['prevent_join_if_bot_present']
+        status = "enabled" if settings['prevent_join_if_bot_present'] else "disabled"
+        await ctx.send(f"Preventing join if another bot is present is now **{status}**.")
+
+    # Command to set roles that prevent the bot from joining a voice channel
+    @commands.hybrid_command(name='set_restricted_roles', description='Sets roles that prevent the bot from joining if a user with one of these roles is in the voice channel.')
+    @commands.has_permissions(administrator=True)
+    async def set_restricted_roles(self, ctx, roles: commands.Greedy[discord.Role]):
+        """Sets roles that prevent the bot from joining if a user with one of these roles is in the voice channel."""
+        settings = self.get_guild_settings(ctx.guild)
+        if roles:
+            settings['restricted_roles'] = [role.id for role in roles]
+            role_names = ', '.join(role.name for role in roles)
+            await ctx.send(f"Bot will not join if users with the following roles are in the voice channel: {role_names}")
+        else:
+            settings['restricted_roles'] = []
+            await ctx.send("Bot will now join regardless of user roles in the voice channel.")
+
+async def setup(bot):
+    await bot.add_cog(Info(bot))
+
+
+
+# --------------------
+# File: .\GradiorumMP3\cogs\playback.py
+# --------------------
+
+# cogs/playback.py
+
+import discord
+from discord.ext import commands
+from discord import FFmpegPCMAudio
+import os
+
+class Playback(commands.Cog):
+    """Commands used for playing audio"""
+
+    def __init__(self, bot):
+        self.bot = bot
+
+    def get_guild_settings(self, guild):
+        # Access settings stored in bot.guild_settings
+        if hasattr(self.bot, 'guild_settings'):
+            if guild.id in self.bot.guild_settings:
+                return self.bot.guild_settings[guild.id]
+        # Return default settings if none found
+        return {
+            'allowed_channels': None,
+            'prevent_join_if_bot_present': False,
+            'restricted_roles': []
+        }
+
+    @commands.hybrid_command(name='join', description='Makes the bot join your voice channel.')
+    async def join(self, ctx):
+        """Makes the bot join your voice channel."""
+        settings = self.get_guild_settings(ctx.guild)
+
+        if not ctx.author.voice:
+            await ctx.send("You are not connected to a voice channel.")
+            return
+
+        channel = ctx.author.voice.channel
+
+        # Check if bot should prevent joining if another bot is present
+        if settings['prevent_join_if_bot_present']:
+            for member in channel.members:
+                if member.bot and member != self.bot.user:
+                    await ctx.send("Cannot join the voice channel because another bot is already present.")
+                    return
+
+        # Check for restricted roles
+        if settings['restricted_roles']:
+            for member in channel.members:
+                if any(role.id in settings['restricted_roles'] for role in member.roles):
+                    await ctx.send(f"Cannot join the voice channel because {member.display_name} has a restricted role.")
+                    return
+
+        if ctx.voice_client and ctx.voice_client.channel != channel:
+            await ctx.voice_client.move_to(channel)
+        else:
+            await channel.connect()
+        await ctx.send(f"Joined {channel.name}")
+
+    @commands.hybrid_command(name='leave', description='Makes the bot leave the voice channel.')
+    async def leave(self, ctx):
+        """Makes the bot leave the voice channel."""
+        if ctx.voice_client:
+            await ctx.voice_client.disconnect()
+            await ctx.send("Disconnected from the voice channel.")
+        else:
+            await ctx.send("I am not connected to any voice channel.")
+
+    @commands.hybrid_command(name='playnow', description='Plays an MP3 file from the local music directory immediately.')
+    async def playnow(self, ctx, *, query: str):
+        """Plays an MP3 file from the local music directory immediately."""
+        # Check if the user is in a voice channel
+        if not ctx.author.voice:
+            await ctx.send("You need to be in a voice channel to play music.")
+            return
+
+        voice_client = ctx.voice_client
+        if not voice_client:
+            channel = ctx.author.voice.channel
+            await channel.connect()
+            voice_client = ctx.voice_client
+        elif voice_client.channel != ctx.author.voice.channel:
+            await voice_client.move_to(ctx.author.voice.channel)
+
+        # Check if the query is a file in the music directory
+        audio_path = os.path.join('music', f'{query}.mp3')
+        if os.path.isfile(audio_path):
+            source = FFmpegPCMAudio(audio_path)
+            voice_client.stop()
+            voice_client.play(source)
+            await ctx.send(f'Now playing: {query}')
+        else:
+            await ctx.send(f'Could not find the track: {query}')
+
+    @commands.hybrid_command(name='pause', description='Pauses the current track.')
+    async def pause(self, ctx):
+        """Pauses the current track."""
+        voice_client = ctx.voice_client
+        if voice_client and voice_client.is_playing():
+            voice_client.pause()
+            await ctx.send("Playback paused.")
+        else:
+            await ctx.send("Nothing is playing right now.")
+
+    @commands.hybrid_command(name='resume', description='Resumes the current track.')
+    async def resume(self, ctx):
+        """Resumes the current track."""
+        voice_client = ctx.voice_client
+        if voice_client and voice_client.is_paused():
+            voice_client.resume()
+            await ctx.send("Playback resumed.")
+        else:
+            await ctx.send("Playback is not paused.")
+
+    @commands.hybrid_command(name='stop', description='Stops the current track.')
+    async def stop(self, ctx):
+        """Stops the current track."""
+        voice_client = ctx.voice_client
+        if voice_client and (voice_client.is_playing() or voice_client.is_paused()):
+            voice_client.stop()
+            await ctx.send("Playback stopped.")
+        else:
+            await ctx.send("Nothing is playing right now.")
+
+async def setup(bot):
+    await bot.add_cog(Playback(bot))
+
+
+# --------------------
+# File: .\GradiorumMP3\cogs\queue.py
+# --------------------
+
+# cogs/queue.py
+
+import discord
+from discord.ext import commands, tasks
+from collections import deque
+import os
+import asyncio
+import time
+import tempfile
+
+class Track:
+    def __init__(self, file_path, repeats=1):
+        self.file_path = file_path
+        self.repeats = repeats
+
+class MusicQueue:
+    def __init__(self):
+        self.queue = deque()
+
+    def add(self, track):
+        self.queue.append(track)
+
+    def remove(self, index):
+        try:
+            removed_track = self.queue[index]
+            del self.queue[index]
+            return removed_track
+        except IndexError:
+            return None
+
+    def clear(self):
+        self.queue.clear()
+
+    def get_next(self):
+        if self.queue:
+            track = self.queue[0]
+            if track.repeats > 1:
+                track.repeats -= 1
+                return track
+            else:
+                return self.queue.popleft()
+        else:
+            return None
+
+class Queue(commands.Cog):
+    """Commands used for managing the queue"""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.queues = {}  # Guild-specific queues
+        self.allowed_extensions = ['.mp3', '.mp4', '.m4a', '.aac', '.wav', '.ogg']
+        self.inactivity_timers = {}  # To track inactivity per guild
+
+        self.check_inactivity.start()  # Start the background task
+
+    def cog_unload(self):
+        self.check_inactivity.cancel()  # Cancel the background task when the cog is unloaded
+
+    def get_queue(self, guild):
+        if guild.id not in self.queues:
+            self.queues[guild.id] = MusicQueue()
+        return self.queues[guild.id]
+
+    @commands.hybrid_command(name='queue', description='Displays the current queue.')
+    async def queue(self, ctx):
+        """Displays the current queue."""
+        queue = self.get_queue(ctx.guild)
+        if queue.queue:
+            message = "Current Queue:\n"
+            for idx, track in enumerate(queue.queue):
+                file_name = os.path.basename(track.file_path)
+                message += f"{idx+1}. {file_name} (Repeats left: {track.repeats})\n"
+            await ctx.send(message)
+        else:
+            await ctx.send("The queue is currently empty.")
+
+    @commands.hybrid_command(name='skip', description='Skips the current track.')
+    async def skip(self, ctx):
+        """Skips the current track."""
+        voice_client = ctx.guild.voice_client
+        if voice_client and voice_client.is_playing():
+            # Stop the current track
+            voice_client.stop()
+            await ctx.send("Skipped the current track.")
+        else:
+            await ctx.send("Nothing is playing right now.")
+
+    @commands.hybrid_command(name='clear', description='Clears the queue.')
+    async def clear(self, ctx):
+        """Clears the queue."""
+        queue = self.get_queue(ctx.guild)
+        # Delete all files in the queue
+        for track in queue.queue:
+            self.delete_audio_file(track.file_path)
+        queue.clear()
+        await ctx.send("Cleared the queue.")
+
+    @commands.hybrid_command(name='remove', description='Removes a track from the queue.')
+    async def remove(self, ctx, index: int):
+        """Removes a track from the queue."""
+        queue = self.get_queue(ctx.guild)
+        removed_track = queue.remove(index - 1)
+        if removed_track:
+            self.delete_audio_file(removed_track.file_path)
+            await ctx.send(f"Removed track {index}.")
+        else:
+            await ctx.send(f"Could not remove track {index}.")
+
+    @commands.hybrid_command(name='play', description='Queues attached audio files to play.')
+    async def play(self, ctx, repeats: int = 1):
+        """Queues attached audio files to play. Use `-r` to specify repeats (e.g., `!play -r 3`)."""
+        # Ensure there is at least one attachment
+        if not ctx.message.attachments:
+            await ctx.send('Please attach audio file(s) to play.')
+            return
+
+        # Check if the user is in a voice channel
+        if not ctx.author.voice:
+            await ctx.send("You need to be in a voice channel to play music.")
+            return
+
+        queue = self.get_queue(ctx.guild)
+        added_tracks = []
+
+        for attachment in ctx.message.attachments:
+            file_extension = os.path.splitext(attachment.filename)[1].lower()
+
+            # Validate file extension
+            if file_extension not in self.allowed_extensions:
+                await ctx.send(f'Only the following file types are accepted: {", ".join(self.allowed_extensions)}')
+                continue
+
+            # Download the attached file
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(temp_dir, f"{ctx.message.id}_{attachment.filename}")
+            try:
+                await attachment.save(file_path)
+            except Exception as e:
+                await ctx.send(f'Failed to download the file {attachment.filename}.')
+                print(f'Error downloading file: {e}')
+                continue
+
+            track = Track(file_path, repeats)
+            queue.add(track)
+            added_tracks.append(attachment.filename)
+
+        if added_tracks:
+            await ctx.send(f"Added {', '.join(added_tracks)} to the queue with {repeats} repeat(s).")
+        else:
+            await ctx.send("No valid audio files were added to the queue.")
+
+        # If not connected, join the user's voice channel automatically
+        voice_client = ctx.guild.voice_client
+        if not voice_client or not voice_client.is_connected():
+            if ctx.author.voice:
+                channel = ctx.author.voice.channel
+                try:
+                    voice_client = await channel.connect()
+                except discord.ClientException:
+                    pass  # Already connected to a channel
+            else:
+                await ctx.send('You need to be in a voice channel.')
+                return
+        elif voice_client.channel != ctx.author.voice.channel:
+            await voice_client.move_to(ctx.author.voice.channel)
+
+        # Start playing if not already
+        if not voice_client.is_playing() and not voice_client.is_paused():
+            await self.play_next(ctx)
+        else:
+            # Reset inactivity timer
+            self.reset_inactivity_timer(ctx.guild.id)
+
+    async def play_next(self, ctx):
+        queue = self.get_queue(ctx.guild)
+        next_track = queue.get_next()
+        if next_track:
+            if os.path.isfile(next_track.file_path):
+                settings_cog = self.bot.get_cog('Settings')
+                volume = settings_cog.get_settings(ctx.guild)['volume'] if settings_cog else 1.0
+
+                source = discord.PCMVolumeTransformer(
+                    discord.FFmpegPCMAudio(
+                        next_track.file_path,
+                        options='-vn'  # Ignore video stream if present
+                    ),
+                    volume=volume
+                )
+                voice_client = ctx.guild.voice_client
+
+                def after_playback(error):
+                    if error:
+                        print(f'Error during playback: {error}')
+                    # Schedule the after_track coroutine in the event loop
+                    asyncio.run_coroutine_threadsafe(self.after_track(ctx, next_track, error), self.bot.loop)
+
+                voice_client.play(source, after=after_playback)
+
+                file_name = os.path.basename(next_track.file_path)
+                await ctx.send(f'Now playing: {file_name}')
+                # Reset inactivity timer
+                self.reset_inactivity_timer(ctx.guild.id)
+            else:
+                await ctx.send('Could not find the audio file.')
+                # Play next track if available
+                await self.play_next(ctx)
+        else:
+            await ctx.send('Queue is empty.')
+            # Start inactivity timer
+            self.reset_inactivity_timer(ctx.guild.id)
+
+    async def after_track(self, ctx, track, error):
+        if error:
+            print(f'Error in playing track: {error}')
+        # Delete the audio file after playing
+        self.delete_audio_file(track.file_path)
+        # Continue playing next track
+        await self.play_next(ctx)
+
+    def delete_audio_file(self, file_path):
+        if os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+                print(f'Deleted audio file: {file_path}')
+            except Exception as e:
+                print(f'Error deleting file {file_path}: {e}')
+
+    def reset_inactivity_timer(self, guild_id):
+        self.inactivity_timers[guild_id] = time.time()
+
+    @tasks.loop(seconds=60)
+    async def check_inactivity(self):
+        current_time = time.time()
+        for guild_id, last_active in list(self.inactivity_timers.items()):
+            if current_time - last_active > 300:  # 300 seconds = 5 minutes
+                guild = self.bot.get_guild(guild_id)
+                if guild:
+                    voice_client = guild.voice_client
+                    if voice_client and voice_client.is_connected():
+                        queue = self.get_queue(guild)
+                        if not voice_client.is_playing() and not queue.queue:
+                            await voice_client.disconnect()
+                            print(f'Disconnected from voice channel in guild {guild.name} due to inactivity.')
+                del self.inactivity_timers[guild_id]
+
+    @check_inactivity.before_loop
+    async def before_check_inactivity(self):
+        await self.bot.wait_until_ready()
+
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        print(f'Error: {error}')
+
+async def setup(bot):
+    await bot.add_cog(Queue(bot))
+
+
+# --------------------
+# File: .\GradiorumMP3\cogs\settings.py
+# --------------------
+
+# cogs/settings.py
+
+import discord
+from discord.ext import commands
+
+class Settings(commands.Cog):
+    """Commands used for configuring settings"""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.settings = {}  # Guild-specific settings
+
+    def get_settings(self, guild):
+        if guild.id not in self.settings:
+            self.settings[guild.id] = {'volume': 1.0}
+        return self.settings[guild.id]
+
+    @commands.hybrid_command(name='volume', description='Changes the playback volume (0-100).')
+    async def volume(self, ctx, volume: int):
+        """Changes the playback volume (0-100)."""
+        if 0 <= volume <= 100:
+            settings = self.get_settings(ctx.guild)
+            settings['volume'] = volume / 100.0
+            voice_client = ctx.voice_client
+            if voice_client and voice_client.source:
+                voice_client.source.volume = settings['volume']
+            await ctx.send(f"Volume set to {volume}%")
+        else:
+            await ctx.send("Please enter a value between 0 and 100.")
+
+async def setup(bot):
+    await bot.add_cog(Settings(bot))
+
+
+# --------------------
+# File: .\GradiorumMP3\cogs\__init__.py
+# --------------------
+
+
